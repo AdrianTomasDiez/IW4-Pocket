@@ -85,6 +85,12 @@ pub(super) fn ensure_shadowmap_sun_target(
         label: Some("iw4_shadowmap_sun_depth"),
         ..Default::default()
     });
+    // Colour R32Float (4 B) + Depth24PlusStencil8 (counted as 4 B) per texel.
+    diag::info!(
+        World,
+        "shadow memory: sun map {width}x{height} ~{} MiB (colour R32Float + depth)",
+        u64::from(width) * u64::from(height) * 8 / (1024 * 1024)
+    );
     gpu.target = Some(ShadowmapSunGpuTarget {
         _color: color,
         color_view: color_view.clone(),

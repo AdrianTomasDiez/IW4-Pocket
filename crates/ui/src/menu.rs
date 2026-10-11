@@ -63,6 +63,7 @@ pub fn install_frontend_menus(catalog: &mut asset_game::MenuCatalog) -> Result<(
     catalog.load_definitions(include_str!("../menus/settings.json"))?;
     catalog.load_definitions(include_str!("../menus/controller.json"))?;
     catalog.load_definitions(include_str!("../menus/game_folders.json"))?;
+    catalog.load_definitions(include_str!("../menus/pocket.json"))?;
     let slider = catalog
         .get("pc_options_video")
         .and_then(|menu| {
@@ -135,6 +136,7 @@ pub fn install_frontend_menus(catalog: &mut asset_game::MenuCatalog) -> Result<(
             )];
             let mut controller = multiplayer.clone();
             let mut game_folders = multiplayer.clone();
+            let mut pocket = multiplayer.clone();
             menu.items.push(multiplayer);
             controller.name = "controller_settings".into();
             controller.text_key = "Controller".into();
@@ -150,6 +152,13 @@ pub fn install_frontend_menus(catalog: &mut asset_game::MenuCatalog) -> Result<(
                 "play mouse_click; close self; open options_game_folders;".into(),
             )];
             menu.items.push(game_folders);
+            pocket.name = "pocket_settings".into();
+            pocket.text_key = "IW4 Pocket options".into();
+            pocket.rect.y = 148.0;
+            pocket.handlers.action = vec![asset_game::MenuEvent::Script(
+                "play mouse_click; close self; open options_pocket;".into(),
+            )];
+            menu.items.push(pocket);
         }
 
         let removed_rows: Vec<_> = menu
@@ -171,6 +180,7 @@ pub fn install_frontend_menus(catalog: &mut asset_game::MenuCatalog) -> Result<(
                     && item.name != "multiplayer_settings"
                     && item.name != "controller_settings"
                     && item.name != "game_folders_settings"
+                    && item.name != "pocket_settings"
             })
         });
         if name == "pc_options_controls" {

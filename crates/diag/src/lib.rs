@@ -4,6 +4,7 @@ pub mod frame_pacing;
 pub mod gap;
 pub mod memtrack;
 pub mod asset_heap;
+pub mod session;
 pub mod memory_settings;
 pub mod ios_env;
 pub mod wgsl_dump;
@@ -227,9 +228,20 @@ pub fn boot_crumb(message: &str) {
         let path = std::path::Path::new(&home).join("Documents").join("iw4l-boot.log");
         if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
             use std::io::Write;
-            let _ = writeln!(file, "{message}");
+            // The shared log names the app folder as `<app>`, not the install id.
+            let clean = ios_env::anonymize_paths(message, home.to_str());
+            let _ = writeln!(file, "{clean}");
         }
     }
+}
+
+/// A line for the run log on every platform: the iOS boot log on a phone, the
+/// normal log elsewhere (so desktop never creates `Documents/iw4l-boot.log`).
+pub fn boot_note(message: &str) {
+    #[cfg(target_os = "ios")]
+    boot_crumb(message);
+    #[cfg(not(target_os = "ios"))]
+    write_event(Channel::Launch, Level::Info, message, None, None);
 }
 
 pub fn exit_launch_error(message: &str) -> ! {

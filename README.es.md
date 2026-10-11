@@ -30,8 +30,8 @@ Un port a iOS del motor de código abierto [IW4L](https://github.com/vladtrc/iw4
 - ✅ Se ejecuta de forma nativa en iPhone (Rust + Bevy + Metal)
 - ✅ Llega al menú principal. El toque funciona como clic y un mando PS4 funciona
 - ✅ En un iPhone 17 Pro Max (6 GB concedidos a la app) se juegan partidas completas con bots: [mira el clip](https://jumpshare.com/s/rFCD5I9ZtWvcN3gcBO8e), de [treuenten](https://github.com/treuenten)
-- ✅ La app elige sola su configuración de memoria según la memoria que iOS concede al teléfono (baja / media / alta)
-- ⚠️ En un iPhone 13 Pro Max (unos 3 GB concedidos), `mp_rust` ahora carga hasta los shaders y luego la app se cierra sola. En investigación
+- ✅ La app elige sola su configuración de memoria según la memoria que iOS concede al teléfono (baja / media / alta). Todo se puede cambiar en el juego en **Opciones > IW4 Pocket options**, y **Send logs** abre un informe ya rellenado
+- ⚠️ En un iPhone 13 Pro Max (unos 3 GB concedidos) la app se cerraba durante `mp_rust`. Se encontró la causa: un error gráfico en teléfonos cuya GPU no filtra texturas de 32 bits. La 0.3.3 lo evita. **Aún no se ha probado en un teléfono** y la memoria sigue muy justa
 
 ## 🙋 Pruébalo, paso a paso
 
@@ -62,6 +62,7 @@ No hace falta saber programar. Lleva unos 15 minutos más la copia de archivos.
 
 ## 🔧 ¿Algo falla?
 
+- **La forma más fácil de informar de un problema:** en el juego abre *Opciones > IW4 Pocket options > Send logs*. Abre GitHub con el resumen ya escrito; adjunta `iw4l-boot.log` y `iw4l-memory-settings.txt`
 - **"MW2 Multiplayer was not found"**: la carpeta debe estar dentro de `Games` y contener `zone`
 - **Pantalla rosa mucho rato**: espera, la primera carga es lenta
 - **Mando no detectado**: empárejalo primero en Bluetooth y reabre la app

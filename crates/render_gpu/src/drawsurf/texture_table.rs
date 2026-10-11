@@ -13,7 +13,9 @@ use bevy::render::render_resource::{
     TextureView, TextureViewDescriptor, TextureViewDimension, TextureViewId, WgpuSampler,
     WgpuTextureView,
 };
-use bevy::render::renderer::RenderDevice;
+use bevy::render::renderer::{RenderDevice, RenderQueue};
+use bevy::render::settings::WgpuFeatures;
+use std::sync::atomic::{AtomicBool, Ordering};
 use d3d9_sm3::{TEXTURE_TABLE_BINDING_2D, TEXTURE_TABLE_BINDING_3D, TEXTURE_TABLE_BINDING_CUBE};
 use render_material::{MaterialGenerationId, SamplerTextureDimension};
 
@@ -81,12 +83,58 @@ pub(super) struct ExactTextureTable {
     view_index: HashMap<TextureViewId, u16>,
 
     sun_shadow_indices: Vec<u16>,
+    /// Slots whose view is an `R32Float` render target (sun shadow map, spot
+    /// shadow map, float depth). A GPU without `FLOAT32_FILTERABLE` (A15 and
+    /// older) cannot bind these to a filterable layout slot: wgpu rejects the
+    /// whole bind group and the app exits. Each entry is (slot, what it is).
+    r32_float_slots: Vec<(u16, &'static str)>,
     samplers: Vec<Sampler>,
     sampler_index: HashMap<SamplerKey, u16>,
     placeholders: Option<Placeholders>,
+    /// 1x1 white `R8Unorm`, bound where an `R32Float` image cannot be: an
+    /// effect that reads it sees "fully lit / far", the same value the shadow
+    /// map is cleared to. Needs the queue to write its one texel.
+    white_2d: Option<TextureView>,
+    queue: Option<RenderQueue>,
     binds: Option<TextureTableBinds>,
 
     pub rebuild_n: u32,
+}
+
+/// Which render-target images are `R32Float` (not filterable without the
+/// `FLOAT32_FILTERABLE` feature). `None` for every other texture.
+fn r32_float_identity(identity: UploadedTextureIdentity) -> Option<&'static str> {
+    match identity {
+        UploadedTextureIdentity::Code(c) if c == super::CODE_TEXTURE_SHADOWMAP_SUN => {
+            Some("sun shadow map")
+        }
+        UploadedTextureIdentity::Code(c) if c == super::CODE_TEXTURE_SHADOWMAP_SPOT => {
+            Some("spot shadow map")
+        }
+        UploadedTextureIdentity::Code(c) if c == super::CODE_TEXTURE_FLOATZ => {
+            Some("float depth")
+        }
+        UploadedTextureIdentity::SpotShadowRt(_) => Some("spot shadow map"),
+        _ => None,
+    }
+}
+
+static R32_MASK_LOGGED: AtomicBool = AtomicBool::new(false);
+
+/// One line in the boot log naming what was replaced and why.
+fn note_r32_masked(slots: &[(u16, &'static str)]) {
+    if R32_MASK_LOGGED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let mut names: Vec<&str> = slots.iter().map(|&(_, w)| w).collect();
+    names.sort_unstable();
+    names.dedup();
+    diag::warn!(
+        World,
+        "gpu: no 32-bit float filtering; {} texture slot(s) use a placeholder instead of: {}",
+        slots.len(),
+        names.join(", ")
+    );
 }
 
 const fn dimension_lane(dimension: SamplerTextureDimension) -> usize {
@@ -110,6 +158,46 @@ impl ExactTextureTable {
         self.epoch
     }
 
+    /// Lets the table write the white placeholder's texel. Called once per
+    /// frame by the prepare system, which owns the queue.
+    pub fn attach_queue(&mut self, queue: &RenderQueue) {
+        if self.queue.is_none() {
+            self.queue = Some(queue.clone());
+        }
+    }
+
+    fn white_placeholder(&mut self, device: &RenderDevice) -> TextureView {
+        if let Some(view) = &self.white_2d {
+            return view.clone();
+        }
+        let descriptor = TextureDescriptor {
+            label: Some("iw4_texture_table_placeholder_white"),
+            size: Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::R8Unorm,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        };
+        let texture = match &self.queue {
+            Some(queue) => device.create_texture_with_data(
+                queue,
+                &descriptor,
+                bevy::render::render_resource::TextureDataOrder::default(),
+                &[255],
+            ),
+            // No queue yet: a zero texel still makes the bind group valid.
+            None => device.create_texture(&descriptor),
+        };
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        // Only cache a fully written texel, so a later frame can retry.
+        if self.queue.is_some() {
+            self.white_2d = Some(view.clone());
+        }
+        view
+    }
+
     pub fn open_epoch(&mut self, epoch: TableEpoch) {
         if self.epoch == epoch {
             return;
@@ -120,6 +208,7 @@ impl ExactTextureTable {
         }
         self.view_index.clear();
         self.sun_shadow_indices.clear();
+        self.r32_float_slots.clear();
         self.samplers.clear();
         self.sampler_index.clear();
         self.binds = None;
@@ -149,6 +238,12 @@ impl ExactTextureTable {
                 if lane.identity == UploadedTextureIdentity::Code(super::CODE_TEXTURE_SHADOWMAP_SUN)
                 {
                     self.sun_shadow_indices.push(index);
+                }
+                // Only the 2D lane holds these render targets (the mask edits `views[0]`).
+                if lane_i == 0
+                    && let Some(what) = r32_float_identity(lane.identity)
+                {
+                    self.r32_float_slots.push((index, what));
                 }
                 self.binds = None;
                 index
@@ -195,7 +290,31 @@ impl ExactTextureTable {
         if self.binds.is_none() {
             let bgl = registry.bind_group_layout(device, layout);
             let placeholder_2d = self.views[0][0].clone();
-            let scene = self.create_bind_group(device, &bgl, "iw4_texture_table_scene", None);
+            // Created only where an R32Float slot has to be masked (not on desktop).
+            let needs_white = !self.r32_float_slots.is_empty()
+                && !device.features().contains(WgpuFeatures::FLOAT32_FILTERABLE);
+            let white_2d = if needs_white {
+                self.white_placeholder(device)
+            } else {
+                placeholder_2d.clone()
+            };
+            // Devices without 32-bit float filtering get a plain placeholder
+            // in the slots that would hold an R32Float image, so the bind
+            // group is valid. Those effects (dynamic shadows, float depth)
+            // read the placeholder instead. Devices that do have the feature
+            // are unchanged.
+            let mask_r32 = !device.features().contains(WgpuFeatures::FLOAT32_FILTERABLE)
+                && !self.r32_float_slots.is_empty();
+            if mask_r32 {
+                note_r32_masked(&self.r32_float_slots);
+            }
+            let scene = self.create_bind_group(
+                device,
+                &bgl,
+                "iw4_texture_table_scene",
+                None,
+                mask_r32.then_some(&white_2d),
+            );
             let sun_caster = if self.sun_shadow_indices.is_empty() {
                 scene.clone()
             } else {
@@ -204,6 +323,7 @@ impl ExactTextureTable {
                     &bgl,
                     "iw4_texture_table_sun_caster",
                     Some(&placeholder_2d),
+                    mask_r32.then_some(&white_2d),
                 )
             };
             self.rebuild_n = self.rebuild_n.saturating_add(1);
@@ -254,10 +374,16 @@ impl ExactTextureTable {
         bgl: &bevy::render::render_resource::BindGroupLayout,
         label: &'static str,
         mask_sun_shadow_with: Option<&TextureView>,
+        mask_r32_float_with: Option<&TextureView>,
     ) -> BindGroup {
         let mut views_2d: Vec<&WgpuTextureView> = self.views[0].iter().map(|v| &**v).collect();
         if let Some(placeholder) = mask_sun_shadow_with {
             for &index in &self.sun_shadow_indices {
+                views_2d[usize::from(index)] = &**placeholder;
+            }
+        }
+        if let Some(placeholder) = mask_r32_float_with {
+            for &(index, _) in &self.r32_float_slots {
                 views_2d[usize::from(index)] = &**placeholder;
             }
         }

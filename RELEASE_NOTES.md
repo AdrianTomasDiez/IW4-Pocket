@@ -1,21 +1,24 @@
-# IW4 Pocket 0.3.2 (test build, not a public release)
+# IW4 Pocket 0.3.3 (test build, not a public release)
 
-Everything from 0.3.1 (heap per asset kind, graphics errors in the log, new icon) plus the
-work of **treuenten** and **neptune**, imported commit by commit with their authorship kept.
+Built to get `mp_rust` running on the iPhone 13 Pro Max (A15) and to make problem reports easy. **Not tried on a phone yet.**
 
-**Frame timing** (treuenten)
-- Two frames in flight on Mid/High phones, no antialiasing on menu cameras. The Low tier (about 3 GB granted) keeps one frame, because the extra drawable has not been measured on that memory; `IW4L_FRAME_LATENCY=2` in `iw4l-env.txt` tries it.
-- A 120 Hz display is asked for its full refresh during matches (`IW4L_PROMOTION=0` turns it off).
-- The screen stays awake while a map loads or a match runs.
-- `frame pacing:` statistics in the log every 128 frames (`IW4L_FRAME_STATS=0` turns them off); optional present pacing (`IW4L_FRAME_PACE=30|40|60`).
-- Pipelined rendering on iOS stays off. `IW4L_PIPELINED_RENDERING=1` is experimental.
+**The graphics error that closed the app** (found in the 0.3.2 logs of an iPhone 13 Pro Max)
+- Phones whose GPU cannot filter 32-bit float textures (A15 and older) made the renderer reject the texture table: `Texture binding 0 expects sample type Float { filterable: true }, but was given a view with format R32Float`. The app then quit with `code=1` while 66 of 1484 pipelines were ready.
+- On those phones the sun shadow map, the spot shadow maps and the float depth now use a 1x1 placeholder in the table. Phones that can filter them (for example the iPhone 17 Pro Max) are unchanged.
+- Dynamic shadows are held off on those phones, since their maps could not be read anyway.
+- If another image causes a similar error, the log names it.
 
-**Engine fixes** (treuenten, one is by neptune)
-- Controller: Predator steering, killstreak map cursor.
-- Menus: Camera view row, text paging, wide-screen background, End Game and lobby return.
-- World: steep slopes, portal culling, plants, dropped weapons, riot shields, projectiles, glass natives (`mp_strike` loads), lighting slots, sky model, sound slots, spark fountains.
-- Bots: the navigation cache no longer rebuilds when weapon tables change (12-29 s saved per map).
+**IW4 Pocket options** (in the game: Options > IW4 Pocket options)
+- Device profile, texture size, frames in flight, 120 Hz in matches, frame limit, compressed textures, dynamic shadows. Every row starts with **Auto**, has a one-line description, and applies after you restart the app.
+- Choices are kept in `Documents/iw4l-env.txt`; lines you wrote there yourself are left alone.
+- **Send logs**: asks for a second press, then opens a GitHub problem report with a short summary filled in (no personal data). You attach the two log files by hand.
+- Shows how much memory iOS gives the app.
 
-Held back by the author: the floating-bodies fix.
+**Better logs**
+- `gpu:` line (compressed textures, 32-bit float filtering), `shadow memory:` lines, `session summary:` (peak memory, least memory left, why the run ended), `previous run:` (tells a run closed by iOS from one that ended itself).
+- Heap per asset kind now shows `total` and `own` (a weapon's own cost without its models and animations).
+- The app folder path is written as `<app>`; the install id is no longer in the log. Repetitive lines (destructible deaths, static model meshes) are left out.
 
-Please send `iw4l-boot.log` and `iw4l-memory-settings.txt` after trying `mp_rust`. Look for `RENDER ERROR`, `heap net growth` and `frame pacing:`.
+Known: memory on a 3 GB grant is still very tight (about 2.9 GB used of 3.07 GB at peak). This build does not lower it.
+
+Please send `iw4l-boot.log`, `iw4l-boot.prev.log` and `iw4l-memory-settings.txt` after trying `mp_rust`.

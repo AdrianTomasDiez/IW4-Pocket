@@ -3,13 +3,16 @@
 //! `begin()` notes this thread's net allocated bytes; `end(kind, mark)` adds the
 //! difference to that kind's total. Only allocations made by the calling thread are
 //! counted, so parallel loads on other threads do not leak in. It is a net figure:
-//! an asset that frees a buffer another thread allocated earlier shows less, and
-//! nested assets are counted by every enclosing kind as well as their own.
-//! Read the numbers as a ranking of where the heap grows, not as exact sizes.
+//! an asset that frees a buffer another thread allocated earlier shows less.
+//!
+//! Two numbers per kind: `total` includes assets nested inside it (a weapon owns its
+//! models and animations), `own` subtracts what its nested assets grew by. `own` is
+//! what the kind itself costs. Read both as a ranking, not as exact sizes.
 //! Zone decompression buffers are allocated outside any asset body and do not appear.
 //!
 //! The per-thread counter lives in the global allocator and is always on (it does not
 //! depend on `IW4L_COUNTING_ALLOC`); the launcher installs that allocator on every platform.
+use std::cell::RefCell;
 use std::sync::Mutex;
 
 use crate::alloc_count;
@@ -19,31 +22,67 @@ struct Row {
     kind: &'static str,
     count: u64,
     net: i64,
+    own: i64,
 }
 
 static ROWS: Mutex<Vec<Row>> = Mutex::new(Vec::new());
 
+thread_local! {
+    /// Growth already claimed by finished child assets, one slot per open `begin()`.
+    static CHILD_NET: RefCell<Vec<i64>> = const { RefCell::new(Vec::new()) };
+}
+
 /// Opaque marker taken at the start of an asset body.
 #[derive(Clone, Copy)]
-pub struct Mark(i64);
+pub struct Mark {
+    net: i64,
+    depth: usize,
+}
 
 pub fn begin() -> Mark {
-    Mark(alloc_count::thread_net_bytes())
+    let depth = CHILD_NET
+        .try_with(|stack| {
+            let mut stack = stack.borrow_mut();
+            stack.push(0);
+            stack.len() - 1
+        })
+        .unwrap_or(0);
+    Mark { net: alloc_count::thread_net_bytes(), depth }
 }
 
 pub fn end(kind: &'static str, mark: Mark) {
-    let grown = alloc_count::thread_net_bytes() - mark.0;
+    let (grown, own) = settle(mark);
     let Ok(mut rows) = ROWS.lock() else { return };
     match rows.iter_mut().find(|row| row.kind == kind) {
         Some(row) => {
             row.count += 1;
             row.net += grown;
+            row.own += own;
         }
-        None => rows.push(Row { kind, count: 1, net: grown }),
+        None => rows.push(Row { kind, count: 1, net: grown, own }),
     }
 }
 
-/// One line, largest net growth first, empty when nothing was recorded.
+/// Closes one asset body: returns (total growth, growth of the asset itself) and
+/// credits the total to the asset that encloses it.
+fn settle(mark: Mark) -> (i64, i64) {
+    let grown = alloc_count::thread_net_bytes() - mark.net;
+    // A load that bailed out with `?` never called `end`: drop its orphaned slots.
+    let children = CHILD_NET
+        .try_with(|stack| {
+            let mut stack = stack.borrow_mut();
+            stack.truncate(mark.depth + 1);
+            let children = stack.pop().unwrap_or(0);
+            if let Some(parent) = stack.last_mut() {
+                *parent += grown;
+            }
+            children
+        })
+        .unwrap_or(0);
+    (grown, grown - children)
+}
+
+/// One line, largest total growth first, empty when nothing was recorded.
 pub fn report() -> String {
     let Ok(rows) = ROWS.lock() else { return String::new() };
     if rows.is_empty() {
@@ -55,10 +94,18 @@ pub fn report() -> String {
     let parts: Vec<String> = sorted
         .iter()
         .take(10)
-        .map(|row| format!("{} {}x {}MiB", row.kind, row.count, mib(row.net)))
+        .map(|row| {
+            format!(
+                "{} {}x total {}MiB own {}MiB",
+                row.kind,
+                row.count,
+                mib(row.net),
+                mib(row.own)
+            )
+        })
         .collect();
     format!(
-        "heap net growth per asset kind (top 10, per-thread net, nested assets counted in each enclosing kind): {}",
+        "heap net growth per asset kind (top 10, per-thread net; total includes nested assets, own does not): {}",
         parts.join(" | ")
     )
 }
@@ -70,17 +117,36 @@ mod tests {
     #[test]
     fn report_ranks_by_net_growth() {
         ROWS.lock().unwrap().clear();
-        let mark = Mark(0);
         {
             let mut rows = ROWS.lock().unwrap();
-            rows.push(Row { kind: "small", count: 2, net: 10 << 20 });
-            rows.push(Row { kind: "big", count: 1, net: 300 << 20 });
+            rows.push(Row { kind: "small", count: 2, net: 10 << 20, own: 10 << 20 });
+            rows.push(Row { kind: "big", count: 1, net: 300 << 20, own: 100 << 20 });
         }
         let line = report();
         assert!(line.find("big").unwrap() < line.find("small").unwrap());
-        assert!(line.contains("big 1x 300MiB"));
-        let _ = mark;
+        assert!(line.contains("big 1x total 300MiB own 100MiB"));
         ROWS.lock().unwrap().clear();
         assert!(report().is_empty());
+    }
+
+    #[test]
+    fn nested_end_credits_the_parent() {
+        CHILD_NET.with(|s| s.borrow_mut().clear());
+        let outer = begin();
+        let inner = begin();
+        assert_eq!(outer.depth, 0);
+        assert_eq!(inner.depth, 1);
+        settle(inner);
+        settle(outer);
+        CHILD_NET.with(|s| assert!(s.borrow().is_empty()));
+    }
+
+    #[test]
+    fn orphaned_children_do_not_unbalance_the_stack() {
+        CHILD_NET.with(|s| s.borrow_mut().clear());
+        let outer = begin();
+        let _lost = begin();
+        settle(outer);
+        CHILD_NET.with(|s| assert!(s.borrow().is_empty()));
     }
 }

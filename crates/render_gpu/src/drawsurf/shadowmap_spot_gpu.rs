@@ -162,6 +162,11 @@ fn ensure_one(
         label: Some(depth_label),
         ..Default::default()
     });
+    diag::info!(
+        World,
+        "shadow memory: spot map {color_label} {width}x{height} ~{} MiB (colour R32Float + depth)",
+        u64::from(width) * u64::from(height) * 8 / (1024 * 1024)
+    );
     *slot = Some(SpotGpuTarget {
         _color: color,
         color_view,

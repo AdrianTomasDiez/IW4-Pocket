@@ -25,6 +25,7 @@ pub mod editor;
 mod feature_dispatch;
 mod frontend;
 mod game_folders;
+mod pocket_options;
 mod gamepad;
 pub mod input;
 mod local_account;
@@ -47,6 +48,7 @@ pub use command::{ConsoleCommand, ConsoleQueue, SubmittedCommand};
 pub use editor::ConsoleEditor;
 pub use feature_dispatch::register_feature_commands;
 pub use game_folders::stored_game_folders;
+pub use pocket_options::OpenExternalUrl;
 pub use plugin::{
     ConsoleCommandQueue, ConsoleDispatch, ConsoleDispatchSet, ConsoleFont, ConsolePlugin,
     ConsoleSettings, ConsoleState,

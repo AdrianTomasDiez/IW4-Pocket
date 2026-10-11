@@ -15,6 +15,8 @@ MARKERS = (
     b"IW4L_FPV_RETAIN_MIB", b"IW4L_SHADER_WORKERS", b"IW4L_MOVE_IMAGES",
     b"optional FPV next-map cache", b"cumulative traffic (not live)",
     b"iw4l-memory-settings.txt", b"device tier:", b"IW4L_RESIDENT_MAP", b"IW4L_IOS_BC", b"heap net growth per asset kind", b"RENDER ERROR", b"IW4L_FRAME_LATENCY", b"IW4L_PROMOTION", b"idle timer:", b"frame pacing:",
+    b"session summary:", b"previous run:", b"gpu: adapter=", b"IW4L_TIER", b"IW4L_TEXTURE_CAP", b"IW4L_SHADOWS",
+    b"IW4 Pocket options", b"shadow memory:", b"no 32-bit float filtering",
 )
 
 

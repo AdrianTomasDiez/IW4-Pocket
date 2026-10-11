@@ -98,6 +98,11 @@ pub(super) fn prepare_colour_lanes(
         ResMut<ShadowSubmitScratch>,
     ),
 ) {
+    // The tables write their white placeholder texel through this queue.
+    for table in texture_table.0.iter_mut() {
+        table.attach_queue(&queue);
+    }
+    shadow_table.attach_queue(&queue);
     let mut cameras = views.iter();
     let view = cameras.next();
     let extra_views = cameras.count();

@@ -53,10 +53,14 @@ pub fn add_runtime_plugins_with_role(app: &mut App, role: RuntimeRole) {
     crate::idle_timer::register(app);
     // iOS present pacing, dt snap and frame timing stats; nothing elsewhere.
     crate::frame_pace::register(app);
+    // "Send logs" in IW4 Pocket options opens the project's GitHub page.
+    crate::open_url::register(app);
     // Render setup can finish after Startup, so watch for the resource.
     app.add_systems(
         First,
-        note_gpu_bc.run_if(resource_added::<bevy::image::CompressedImageFormatSupport>),
+        (note_gpu_bc, note_gpu_caps)
+            .chain()
+            .run_if(resource_added::<bevy::image::CompressedImageFormatSupport>),
     );
 
     app.edit_schedule(Update, |schedule| {
@@ -139,11 +143,51 @@ fn log_then_quit(
             diag::ios_env::footprint_bytes().unwrap_or(0) / (1024 * 1024),
             diag::ios_env::available_bytes().unwrap_or(0) / (1024 * 1024),
         );
-        diag::boot_crumb(&text);
+        diag::boot_note(&text);
+        diag::session::set_exit_reason("ended by a render error (see RENDER ERROR above)");
+        diag::boot_note(&diag::session::summary_line());
         diag::flush();
     }
     main_world.write_message(AppExit::error());
     bevy::render::error_handler::RenderErrorPolicy::StopRendering
+}
+
+/// One boot-log line with the GPU facts that decide which paths run: compressed
+/// textures and 32-bit float filtering (A15 and older have neither). A reader of
+/// the log sees at once why an effect is replaced or a format is expanded.
+fn note_gpu_caps(
+    device: Option<Res<bevy::render::renderer::RenderDevice>>,
+    info: Option<Res<bevy::render::renderer::RenderAdapterInfo>>,
+) {
+    let (Some(device), Some(info)) = (device, info) else {
+        diag::boot_note("gpu: capabilities unavailable (no render device yet)");
+        return;
+    };
+    diag::boot_note(&gpu_caps_line(&info.0.name, device.features()));
+    // Dynamic shadows: IW4 Pocket options (`IW4L_SHADOWS`) or, on Auto, off where the
+    // shadow maps cannot be bound. Desktop keeps the game's own Shadows option.
+    if cfg!(target_os = "ios") {
+        let off = diag::session::shadows_decision(
+            std::env::var(diag::memory_settings::SHADOWS_ENV).ok().as_deref(),
+            device.features().contains(WgpuFeatures::FLOAT32_FILTERABLE),
+        );
+        diag::session::force_shadows_off(off);
+        diag::boot_note(if off {
+            "shadows: dynamic shadows held off (IW4 Pocket options or this GPU cannot draw them)"
+        } else {
+            "shadows: dynamic shadows follow the game's Shadows option"
+        });
+    }
+}
+
+fn gpu_caps_line(adapter: &str, features: WgpuFeatures) -> String {
+    let yes = |f: WgpuFeatures| if features.contains(f) { "yes" } else { "no" };
+    format!(
+        "gpu: adapter={adapter} | bc textures={} | float32 filtering={} | texture arrays={}",
+        yes(WgpuFeatures::TEXTURE_COMPRESSION_BC),
+        yes(WgpuFeatures::FLOAT32_FILTERABLE),
+        yes(WgpuFeatures::TEXTURE_BINDING_ARRAY),
+    )
 }
 
 /// Tells the texture decoder whether the GPU samples BC directly, so iOS can

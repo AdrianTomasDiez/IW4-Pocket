@@ -58,6 +58,74 @@ class Contract(unittest.TestCase):
             for p in files:
                 self.assertIsNone(pattern.search(p.read_text()), str(p))
 
+    def test_pocket_menu_matches_the_code(self):
+        """The generated menu and pocket_options.rs must list the same rows."""
+        import json
+        menu = json.loads(text("crates/ui/menus/pocket.json"))[0]
+        self.assertEqual(menu["name"], "options_pocket")
+        rust = text("crates/console/src/pocket_options.rs")
+        rust_rows = re.findall(r'dvar: "(ui_pocket_[a-z]+)"', rust)
+        menu_rows = [c["fields"]["dvar"] for c in menu["item_copies"]
+                     if c["fields"].get("dvar", "").startswith("ui_pocket_")]
+        self.assertEqual(rust_rows, menu_rows)
+        for c in menu["item_copies"]:
+            f = c["fields"]
+            if f.get("dvar", "").startswith("ui_pocket_"):
+                self.assertEqual(f["choices"][0], ["Auto", "auto"], f["dvar"])
+                self.assertEqual(f["item_type"], 12)
+        # Every shown value must be a key in the row's map in pocket_options.rs.
+        maps = {}
+        for dvar, body in re.findall(r'dvar: "(ui_pocket_[a-z]+)",.*?map: &\[(.*?)\],\n    \}', rust, re.S):
+            maps[dvar] = re.findall(r'\("([a-z0-9]+)", ', body)
+        for c in menu["item_copies"]:
+            f = c["fields"]
+            if f.get("dvar", "").startswith("ui_pocket_"):
+                self.assertEqual([v for _, v in f["choices"]], maps[f["dvar"]], f["dvar"])
+        # Reached from the settings menu and loaded with the others.
+        menu_rs = text("crates/ui/src/menu.rs")
+        self.assertIn("../menus/pocket.json", menu_rs)
+        self.assertIn("open options_pocket", menu_rs)
+
+    def test_generated_menu_is_current(self):
+        import json, subprocess, sys, tempfile, shutil
+        target = ROOT / "crates/ui/menus/pocket.json"
+        before = json.loads(target.read_text())
+        backup = tempfile.mktemp()
+        shutil.copy(target, backup)
+        try:
+            subprocess.run([sys.executable, "tools/gen_pocket_menu.py"], cwd=ROOT, check=True,
+                           capture_output=True)
+            self.assertEqual(before, json.loads(target.read_text()),
+                             "pocket.json is stale: run tools/gen_pocket_menu.py")
+        finally:
+            shutil.copy(backup, target)
+
+    def test_only_the_project_repository_can_be_opened(self):
+        src = text("crates/bootstrap/src/open_url.rs")
+        self.assertIn("https://github.com/MarkusSela/IW4-Pocket/", src)
+        self.assertIn("allowed(&request.0)", src)
+        report = text("crates/console/src/pocket_options.rs")
+        self.assertIn("MarkusSela/IW4-Pocket/issues/new", report)
+
+    def test_log_is_scrubbed_of_the_install_id(self):
+        lib = text("crates/diag/src/lib.rs")
+        body = lib.split("pub fn boot_crumb", 1)[1].split("pub fn boot_note", 1)[0]
+        self.assertIn("anonymize_paths", body)
+
+    def test_shadows_follow_the_gpu_and_the_option(self):
+        plugins = text("crates/bootstrap/src/plugins.rs")
+        self.assertIn("shadows_decision", plugins)
+        self.assertIn("FLOAT32_FILTERABLE", plugins)
+        settings = text("crates/console/src/user_settings.rs")
+        self.assertIn("shadows_forced_off", settings)
+
+    def test_r32_float_slots_are_masked_without_float_filtering(self):
+        src = text("crates/render_gpu/src/drawsurf/texture_table.rs")
+        self.assertIn("FLOAT32_FILTERABLE", src)
+        for name in ("CODE_TEXTURE_SHADOWMAP_SUN", "CODE_TEXTURE_SHADOWMAP_SPOT", "CODE_TEXTURE_FLOATZ"):
+            self.assertIn(name, src)
+        self.assertIn("SpotShadowRt", src)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

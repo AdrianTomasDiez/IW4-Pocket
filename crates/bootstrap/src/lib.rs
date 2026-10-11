@@ -6,6 +6,7 @@ mod idle_timer;
 #[cfg(target_os = "ios")]
 mod ios_input;
 mod launch;
+mod open_url;
 mod plugins;
 mod promotion;
 

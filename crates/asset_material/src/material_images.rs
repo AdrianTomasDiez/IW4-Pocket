@@ -3560,8 +3560,9 @@ unsafe extern "C" {
 }
 
 /// Largest texture side kept on iOS. Higher mips are dropped (a quarter of the memory
-/// per level). Order: Documents/iw4l-texture-cap.txt (a number >= 64) wins; otherwise
-/// it is derived from the memory iOS grants this process at the first texture.
+/// per level). Order: env `IW4L_TEXTURE_CAP` (IW4 Pocket options), then
+/// Documents/iw4l-texture-cap.txt (a number >= 64); otherwise it is derived from the
+/// memory iOS grants this process at the first texture.
 /// The choice is written to Documents/iw4l-boot.log.
 #[cfg(target_os = "ios")]
 fn ios_texture_cap() -> u32 {
@@ -3570,14 +3571,21 @@ fn ios_texture_cap() -> u32 {
         let path = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
             .join("Documents")
             .join("iw4l-texture-cap.txt");
-        let from_file = std::fs::read_to_string(&path)
+        // IW4 Pocket options writes IW4L_TEXTURE_CAP; the older file stays supported.
+        let from_env = std::env::var("IW4L_TEXTURE_CAP")
             .ok()
             .and_then(|text| text.trim().parse::<u32>().ok())
             .filter(|cap| *cap >= 64);
+        let from_file = from_env.or_else(|| {
+            std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|text| text.trim().parse::<u32>().ok())
+                .filter(|cap| *cap >= 64)
+        });
         // SAFETY: no arguments, returns a byte count (iOS 13+).
         let budget_mb = unsafe { os_proc_available_memory() } / (1024 * 1024);
         let (cap, why) = match from_file {
-            Some(cap) => (cap, "from iw4l-texture-cap.txt"),
+            Some(cap) => (cap, "set by you (IW4 Pocket options or iw4l-texture-cap.txt)"),
             None if budget_mb < 3500 => (256, "auto, budget under 3.5 GB"),
             None if budget_mb < 5500 => (512, "auto, budget under 5.5 GB"),
             None => (1024, "auto, budget 5.5 GB or more"),

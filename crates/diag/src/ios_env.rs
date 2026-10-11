@@ -206,6 +206,49 @@ pub fn apply_env_file(path: &std::path::Path) -> Vec<String> {
     applied
 }
 
+/// Rewrites `iw4l-env.txt` text for IW4 Pocket options. Each `(name, value)` is set
+/// (`Some`) or removed (`None`, meaning Auto). Every other line, comments and blank
+/// lines included, is kept as it was, so a hand-edited file is not lost.
+pub fn merge_env_lines(existing: &str, updates: &[(&str, Option<&str>)]) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut written = vec![false; updates.len()];
+    for line in existing.lines() {
+        let name = line.split_once('=').map(|(n, _)| n.trim());
+        match name.and_then(|n| updates.iter().position(|(un, _)| *un == n)) {
+            Some(i) if !line.trim_start().starts_with('#') => {
+                // First occurrence is replaced (or dropped), later duplicates are dropped.
+                if !written[i] {
+                    written[i] = true;
+                    if let Some(value) = updates[i].1 {
+                        out.push(format!("{}={value}", updates[i].0));
+                    }
+                }
+            }
+            _ => out.push(line.to_owned()),
+        }
+    }
+    for (i, (name, value)) in updates.iter().enumerate() {
+        if let (false, Some(value)) = (written[i], value) {
+            out.push(format!("{name}={value}"));
+        }
+    }
+    let mut text = out.join("\n");
+    if !text.is_empty() {
+        text.push('\n');
+    }
+    text
+}
+
+/// The value a setting has in `iw4l-env.txt` text, `None` when absent (Auto).
+pub fn env_file_value(text: &str, name: &str) -> Option<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| line.split_once('='))
+        .find(|(n, _)| n.trim() == name)
+        .map(|(_, v)| v.trim().to_owned())
+}
+
 /// Move an existing log aside so a crash does not lose it when the app is reopened.
 pub fn rotate_log(path: &std::path::Path) {
     if path.exists() {
@@ -220,4 +263,124 @@ pub fn is_log_noise(message: &str) -> bool {
     message.starts_with("menu catalog: material ")
         || message.starts_with("menu catalog: UI image ")
         || message.starts_with("hud: namespace tree ")
+        || message.starts_with("destructible death ")
+        || message.starts_with("world report: destructible death ")
+        || message.starts_with("static model mesh: ")
+}
+
+/// Replaces the per-install app folder (it contains a unique install id) with
+/// `<app>`, so a log shared in public does not identify the installation. Model,
+/// RAM, iOS and app version stay: they are what a bug report needs.
+///
+/// `home` is this process's `$HOME`. The scrubber also catches the same folder
+/// written with or without `/private` and any other `.../Application/<id>` path
+/// (the log names a second candidate games folder).
+pub fn anonymize_paths(message: &str, home: Option<&str>) -> String {
+    let mut out = message.to_owned();
+    if let Some(home) = home.filter(|h| h.len() > 8) {
+        out = out.replace(home, "<app>");
+        if let Some(stripped) = home.strip_prefix("/private") {
+            out = out.replace(stripped, "<app>");
+        }
+    }
+    scrub_application_ids(&out)
+}
+
+fn scrub_application_ids(text: &str) -> String {
+    const MARK: &str = "/Containers/Data/Application/";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(MARK) {
+        // Walk back over the folder prefix (`/private/var/mobile` or `/var/mobile`).
+        let head = &rest[..at];
+        let keep = head
+            .rfind(|c: char| {
+                c.is_whitespace() || matches!(c, '`' | '"' | '\'' | '(' | '[' | ':' | ',' | '=' | '|' | ';')
+            })
+            .map_or(0, |i| i + head[i..].chars().next().map_or(1, char::len_utf8));
+        out.push_str(&rest[..keep]);
+        out.push_str("<app>");
+        let after = &rest[at + MARK.len()..];
+        let id_len = after
+            .find(|c: char| c.is_whitespace() || matches!(c, '/' | '`' | '"' | '\'' | ')' | ','))
+            .unwrap_or(after.len());
+        rest = &after[id_len..];
+    }
+    out.push_str(rest);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ID: &str = "83CD7741-8794-4B03-8820-91A45176F6CC";
+
+    #[test]
+    fn home_is_replaced() {
+        let home = format!("/private/var/mobile/Containers/Data/Application/{ID}");
+        let line = format!("log: {home}/Documents/iw4l-artifacts/logs/1.log");
+        let got = anonymize_paths(&line, Some(&home));
+        assert_eq!(got, "log: <app>/Documents/iw4l-artifacts/logs/1.log");
+        assert!(!got.contains(ID));
+    }
+
+    #[test]
+    fn other_application_ids_are_scrubbed() {
+        let line = format!("candidates: /private/var/mobile/Containers/Data/Application/{ID}/Documents/Games, `/var/mobile/Containers/Data/Application/{ID}`");
+        let got = anonymize_paths(&line, None);
+        assert!(!got.contains(ID), "{got}");
+        assert!(got.contains("<app>/Documents/Games"));
+    }
+
+    #[test]
+    fn device_line_keeps_model_and_versions() {
+        let line = "device: model=iPhone14,3 ram=5639MB | darwin=27.2.0 | app=0.3.3";
+        assert_eq!(anonymize_paths(line, Some("/private/var/x/y")), line);
+    }
+
+    #[test]
+    fn merge_sets_replaces_and_removes_only_named_lines() {
+        let before = "# my notes\nIW4L_SOUND=off\nIW4L_TIER=low\n\nIW4L_FRAME_PACE=30\n";
+        let after = merge_env_lines(
+            before,
+            &[
+                ("IW4L_TIER", Some("high")),
+                ("IW4L_FRAME_PACE", None),
+                ("IW4L_PROMOTION", Some("0")),
+            ],
+        );
+        assert_eq!(
+            after,
+            "# my notes\nIW4L_SOUND=off\nIW4L_TIER=high\n\nIW4L_PROMOTION=0\n"
+        );
+    }
+
+    #[test]
+    fn merge_keeps_commented_out_setting_and_drops_duplicates() {
+        let before = "#IW4L_TIER=low\nIW4L_TIER=mid\nIW4L_TIER=high\n";
+        let after = merge_env_lines(before, &[("IW4L_TIER", Some("low"))]);
+        assert_eq!(after, "#IW4L_TIER=low\nIW4L_TIER=low\n");
+    }
+
+    #[test]
+    fn merge_into_empty_and_back_to_auto() {
+        assert_eq!(merge_env_lines("", &[("IW4L_TIER", Some("mid"))]), "IW4L_TIER=mid\n");
+        assert_eq!(merge_env_lines("IW4L_TIER=mid\n", &[("IW4L_TIER", None)]), "");
+    }
+
+    #[test]
+    fn env_file_value_reads_only_live_lines() {
+        let text = "#IW4L_TIER=low\n IW4L_TIER = high \nIW4L_SOUND=on\n";
+        assert_eq!(env_file_value(text, "IW4L_TIER").as_deref(), Some("high"));
+        assert_eq!(env_file_value(text, "IW4L_FRAME_PACE"), None);
+    }
+
+    #[test]
+    fn noisy_lines_are_filtered() {
+        assert!(is_log_noise("destructible death husk x: unresolved"));
+        assert!(is_log_noise("world report: destructible death toy_a: clip=absent"));
+        assert!(is_log_noise("static model mesh: foo (2 surfaces)"));
+        assert!(!is_log_noise("static models: 3356 authored slots"));
+    }
 }

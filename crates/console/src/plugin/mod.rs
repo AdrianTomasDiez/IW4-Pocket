@@ -100,6 +100,7 @@ impl Plugin for ConsolePlugin {
             .init_resource::<crate::local_account::AccountPersistence>()
             .add_message::<ConsoleCommand>()
             .add_message::<frame::TestControllerRumble>()
+            .add_message::<crate::OpenExternalUrl>()
             .add_systems(
                 Startup,
                 (
@@ -211,6 +212,7 @@ impl Plugin for ConsolePlugin {
                             crate::user_settings::native_menu_settings,
                             crate::user_settings::consume_menu_binding,
                             crate::game_folders::game_folder_menu,
+                            crate::pocket_options::pocket_options_menu,
                         )
                             .chain(),
                         crate::user_settings::sync_binding_view,

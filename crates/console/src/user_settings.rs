@@ -476,6 +476,7 @@ pub(crate) fn native_menu_settings(
     mut settings: ResMut<frame::GameSettings>,
     mut dvars: ResMut<frame::UiMenuDvars>,
     mut shadows: ResMut<render_frontend::prepare::scene::view_parms::SmEnableDvar>,
+    mut sun_shadows: ResMut<render_frontend::prepare::scene::view_parms::SmSunEnableDvar>,
     mut dof: ResMut<render_frontend::assemble::drawsurf::dof::DofDvars>,
     mut glow: ResMut<render_frontend::assemble::drawsurf::dof::GlowDvars>,
     mut test_rumble: MessageWriter<frame::TestControllerRumble>,
@@ -554,8 +555,17 @@ pub(crate) fn native_menu_settings(
         settings.sanitize();
         settings.touch();
     }
+    // The GPU can be probed after the first settings pass, so a forced-off state is
+    // re-applied here instead of waiting for the next settings change.
+    let held_off = diag::session::shadows_forced_off();
+    if held_off && shadows.enabled != Some(false) {
+        shadows.enabled = Some(false);
+    }
+    if held_off && sun_shadows.enabled != Some(false) {
+        sun_shadows.enabled = Some(false);
+    }
     if settings.is_changed() {
-        shadows.enabled = Some(settings.shadows);
+        shadows.enabled = Some(settings.shadows && !held_off);
         dof.enable = settings.depth_of_field;
         glow.enable = settings.bloom;
     }

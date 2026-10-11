@@ -1,0 +1,40 @@
+name: Problem report
+description: The app closes, crashes or looks wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping. In the game you can open **Options > IW4 Pocket options > Send logs**: it opens this page with a short summary already filled in.
+        Then attach the two log files (Files app > On My iPhone > IW4 Pocket). They name your app folder as `<app>`; they do not contain your name or Apple ID.
+  - type: input
+    id: device
+    attributes:
+      label: Phone and iOS version
+      placeholder: iPhone 13 Pro Max, iOS 27.2
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: IW4 Pocket version
+      placeholder: "0.3.3"
+    validations:
+      required: true
+  - type: input
+    id: install
+    attributes:
+      label: How did you install it?
+      placeholder: SideStore, Sideloadly, Xcode...
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Which map, what you were doing, when it closed.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Drag `iw4l-boot.log`, `iw4l-boot.prev.log` and `iw4l-memory-settings.txt` here.

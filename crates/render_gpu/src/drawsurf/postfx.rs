@@ -689,7 +689,16 @@ fn draw_postfx(
                 target: size,
             });
         }
-        if active && (floatz.resolved_frame != Some(products.0.frame_id) || floatz.view().is_none())
+        // Depth of field reads the R32Float float-Z target through a filterable
+        // layout slot. Without FLOAT32_FILTERABLE (A15 and older) wgpu rejects the
+        // bind group and the app exits, so the frame is drawn without post-fx
+        // instead (logged once as FloatZNotResolvedForFrame).
+        if active
+            && (floatz.resolved_frame != Some(products.0.frame_id)
+                || floatz.view().is_none()
+                || !device
+                    .features()
+                    .contains(bevy::render::settings::WgpuFeatures::FLOAT32_FILTERABLE))
         {
             return Err(PostFxSubmitRefusal::FloatZNotResolvedForFrame);
         }

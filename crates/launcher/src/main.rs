@@ -68,9 +68,16 @@ fn spawn_memory_logger() {
                 if !per_kind.is_empty() {
                     diag::boot_crumb(&per_kind);
                 }
+                // Last line of a run that iOS ends silently: peak and least headroom so far.
+                diag::boot_crumb(&diag::session::summary_line());
                 last_classes = std::time::Instant::now();
             }
             let footprint = diag::ios_env::footprint_bytes().unwrap_or(0) / (1024 * 1024);
+            // Every 250 ms, so the peak and the least headroom are not missed between lines.
+            diag::session::note_sample(
+                footprint,
+                diag::ios_env::available_bytes().unwrap_or(0) / (1024 * 1024),
+            );
             let changed = footprint.abs_diff(last_mb) >= 40;
             if changed || last_log.elapsed() >= std::time::Duration::from_secs(2) {
                 let available_mb = diag::ios_env::available_bytes().unwrap_or(0) / (1024 * 1024);
@@ -122,8 +129,12 @@ fn main() {
     {
         prepare_ios_sandbox();
         let docs = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("Documents");
+        // Read how the last run ended before its log is moved aside: a run closed by
+        // iOS leaves no exit line, and this is the only way to tell.
+        let previous = std::fs::read_to_string(docs.join("iw4l-boot.log")).unwrap_or_default();
         diag::ios_env::rotate_log(&docs.join("iw4l-boot.log"));
         diag::boot_crumb("1 main entered, sandbox ready");
+        diag::boot_crumb(&diag::session::previous_run_note(&previous));
         diag::boot_crumb(&diag::ios_env::device_report(env!("CARGO_PKG_VERSION")));
         for line in diag::ios_env::apply_env_file(&docs.join("iw4l-env.txt")) {
             diag::boot_crumb(&format!("iw4l-env.txt: {line}"));

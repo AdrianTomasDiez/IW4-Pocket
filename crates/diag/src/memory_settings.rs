@@ -8,6 +8,24 @@ pub const SHADER_WORKERS_ENV: &str = "IW4L_SHADER_WORKERS";
 pub const MOVE_IMAGES_ENV: &str = "IW4L_MOVE_IMAGES";
 pub const RESIDENT_MAP_ENV: &str = "IW4L_RESIDENT_MAP";
 pub const IOS_BC_ENV: &str = "IW4L_IOS_BC";
+/// IW4 Pocket options: force the device profile (`low`, `mid`, `high`). Unset = Auto.
+pub const TIER_ENV: &str = "IW4L_TIER";
+/// IW4 Pocket options: largest texture side kept on iOS. Unset = Auto.
+pub const TEXTURE_CAP_ENV: &str = "IW4L_TEXTURE_CAP";
+/// IW4 Pocket options: `0` forces dynamic shadows off. Unset = Auto (off on a GPU that
+/// cannot filter 32-bit float textures, which the shadow maps need); `1` leaves it to the
+/// game's own Shadows option.
+pub const SHADOWS_ENV: &str = "IW4L_SHADOWS";
+
+/// `Some` only for a recognised profile name; anything else means Auto.
+pub fn tier_override(value: Option<&str>) -> Option<Tier> {
+    match value.map(str::trim) {
+        Some("low") => Some(Tier::Low),
+        Some("mid") => Some(Tier::Mid),
+        Some("high") => Some(Tier::High),
+        _ => None,
+    }
+}
 
 /// Device class, chosen once at startup from the memory iOS grants this process.
 /// Defaults only: every `IW4L_*` switch (iw4l-env.txt) still wins over the tier.
@@ -143,14 +161,22 @@ pub fn record_granted_mib(mib: u64) {
     GRANTED_MIB.store(mib, Ordering::Relaxed);
 }
 
+/// What iOS granted at launch, in MiB; 0 when unknown (desktop).
+pub fn granted_mib() -> u64 {
+    GRANTED_MIB.load(Ordering::Relaxed)
+}
+
 pub fn get() -> &'static MemorySettings {
     static SETTINGS: OnceLock<MemorySettings> = OnceLock::new();
     SETTINGS.get_or_init(|| {
         let ios = cfg!(target_os = "ios");
         let granted_mib = Some(GRANTED_MIB.load(Ordering::Relaxed)).filter(|m| *m > 0);
+        // A profile chosen in IW4 Pocket options wins over the one picked from memory.
+        let tier = tier_override(std::env::var(TIER_ENV).ok().as_deref())
+            .unwrap_or_else(|| Tier::pick(ios, granted_mib));
         MemorySettings::parse(
             ios,
-            Tier::pick(ios, granted_mib),
+            tier,
             std::env::var(FPV_CACHE_ENV).ok().as_deref(),
             std::env::var(SHADER_WORKERS_ENV).ok().as_deref(),
             std::env::var(MOVE_IMAGES_ENV).ok().as_deref(),
@@ -172,6 +198,9 @@ pub fn valid_file_setting(name: &str, value: &str) -> bool {
         FPV_CACHE_ENV => value.parse::<u64>().is_ok_and(|n| n <= 1024),
         SHADER_WORKERS_ENV => value.parse::<u64>().is_ok_and(|n| (1..=64).contains(&n)),
         MOVE_IMAGES_ENV | RESIDENT_MAP_ENV | IOS_BC_ENV => matches!(value, "0" | "1"),
+        TIER_ENV => matches!(value, "low" | "mid" | "high"),
+        TEXTURE_CAP_ENV => matches!(value, "128" | "256" | "512" | "1024"),
+        SHADOWS_ENV => matches!(value, "0" | "1"),
         "IW4L_IMAGE_DECODE_BUDGET_MIB" | "IW4L_CACHE_BUDGET_MIB" =>
             value.parse::<u64>().is_ok_and(|n| n <= 4096),
         "IW4L_SOUND" => matches!(value, "off" | "0" | "on" | "1"),
@@ -244,6 +273,27 @@ mod tests {
         let forced = MemorySettings::parse(true, Tier::Low, Some("128"), Some("3"), None, Some("1"), None);
         assert_eq!((forced.fpv_retain_bytes, forced.effective_shader_workers(4), forced.resident_map), (128 << 20, 3, true));
     }
+    #[test]
+    fn pocket_options_settings_are_validated() {
+        assert!(valid_file_setting(TIER_ENV, "low"));
+        assert!(valid_file_setting(TIER_ENV, "high"));
+        assert!(!valid_file_setting(TIER_ENV, "auto"));
+        assert!(!valid_file_setting(TIER_ENV, "Low"));
+        assert!(valid_file_setting(TEXTURE_CAP_ENV, "256"));
+        assert!(!valid_file_setting(TEXTURE_CAP_ENV, "64"));
+        assert!(!valid_file_setting(TEXTURE_CAP_ENV, "4096"));
+        assert!(valid_file_setting(SHADOWS_ENV, "0"));
+        assert!(!valid_file_setting(SHADOWS_ENV, "off"));
+    }
+
+    #[test]
+    fn tier_override_only_accepts_known_names() {
+        assert_eq!(tier_override(Some("mid")), Some(Tier::Mid));
+        assert_eq!(tier_override(Some(" high ")), Some(Tier::High));
+        assert_eq!(tier_override(Some("auto")), None);
+        assert_eq!(tier_override(None), None);
+    }
+
     #[test]
     fn budget_boundaries() {
         assert!(!admits_bytes(0, 0, 0));
