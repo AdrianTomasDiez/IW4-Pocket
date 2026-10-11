@@ -31,7 +31,7 @@ Un port su iOS del motore open source [IW4L](https://github.com/vladtrc/iw4L). *
 - ✅ Arriva al menu principale. Il tocco funziona come clic e il controller PS4 funziona
 - ✅ Su un iPhone 17 Pro Max (6 GB concessi all'app) girano partite complete con i bot: [guarda il video](https://jumpshare.com/s/rFCD5I9ZtWvcN3gcBO8e), di [treuenten](https://github.com/treuenten)
 - ✅ L'app sceglie da sola le impostazioni di memoria in base alla memoria che iOS concede al telefono (basso / medio / alto). Si può cambiare tutto nel gioco in **Opzioni > IW4 Pocket options**, e **Send logs** apre una segnalazione già compilata
-- ⚠️ Su un iPhone 13 Pro Max (circa 3 GB concessi) l'app si chiudeva durante `mp_rust`. La causa è stata trovata: un errore grafico sui telefoni la cui GPU non filtra le texture a 32 bit. La 0.3.3 lo aggira. **Non è ancora stata provata su un telefono** e la memoria resta molto al limite
+- ⚠️ Su un iPhone 13 Pro Max (circa 3 GB concessi) l'app si chiudeva durante `mp_rust` per un errore grafico. La 0.3.3 lo risolve (provato su quel telefono). Ora la memoria finisce poco dopo, mentre la mappa prepara la grafica: iOS chiude l'app con circa 4 MB liberi. Ridurre ancora la memoria è il prossimo lavoro.
 
 ## 🙋 Provalo, passo per passo
 

@@ -1,6 +1,6 @@
-# IW4 Pocket 0.3.3 (test build, not a public release)
+# IW4 Pocket 0.3.3
 
-Built to get `mp_rust` running on the iPhone 13 Pro Max (A15) and to make problem reports easy. **Not tried on a phone yet.**
+Built to get `mp_rust` running on the iPhone 13 Pro Max (A15) and to make problem reports easy. **Tested on an iPhone 13 Pro Max:** the graphics error is gone and the IW4 Pocket options work, but the app still runs out of memory while the map prepares its graphics (see Known).
 
 **The graphics error that closed the app** (found in the 0.3.2 logs of an iPhone 13 Pro Max)
 - Phones whose GPU cannot filter 32-bit float textures (A15 and older) made the renderer reject the texture table: `Texture binding 0 expects sample type Float { filterable: true }, but was given a view with format R32Float`. The app then quit with `code=1` while 66 of 1484 pipelines were ready.
@@ -19,6 +19,6 @@ Built to get `mp_rust` running on the iPhone 13 Pro Max (A15) and to make proble
 - Heap per asset kind now shows `total` and `own` (a weapon's own cost without its models and animations).
 - The app folder path is written as `<app>`; the install id is no longer in the log. Repetitive lines (destructible deaths, static model meshes) are left out.
 
-Known: memory on a 3 GB grant is still very tight (about 2.9 GB used of 3.07 GB at peak). This build does not lower it.
+Known: on a 3 GB grant (iPhone 13 Pro Max) the app is closed by iOS during `mp_rust` while it prepares graphics pipelines (about 3.07 GB used of 3.07 GB, around 750 of 1484 pipelines done). This build does not lower memory; that is the next job. Phones with more memory are not affected.
 
 Please send `iw4l-boot.log`, `iw4l-boot.prev.log` and `iw4l-memory-settings.txt` after trying `mp_rust`.

@@ -31,7 +31,7 @@ A port of the open-source [IW4L](https://github.com/vladtrc/iw4L) engine to iOS.
 - ✅ Reaches the main menu. Touch works as a click and a PS4 controller works
 - ✅ On an iPhone 17 Pro Max (6 GB granted to the app) full matches with bots run: [watch the clip](https://jumpshare.com/s/rFCD5I9ZtWvcN3gcBO8e), by [treuenten](https://github.com/treuenten)
 - ✅ The app picks its memory settings by itself from the memory iOS grants the phone (low / mid / high). Everything can be changed in the game under **Options > IW4 Pocket options**, and **Send logs** opens a prefilled problem report
-- ⚠️ On an iPhone 13 Pro Max (about 3 GB granted) the app quit during `mp_rust`. The cause is found: a graphics error on phones whose GPU cannot filter 32-bit textures. 0.3.3 works around it. **It has not been tried on a phone yet**, and memory there is still very tight
+- ⚠️ On an iPhone 13 Pro Max (about 3 GB granted) the app quit during `mp_rust` with a graphics error. 0.3.3 fixes that error (tested on that phone). The app now runs out of memory a little later, while the map prepares its graphics: iOS closes it with about 4 MB left. Lowering memory further is the next job.
 
 ## 🙋 Try it, step by step
 
