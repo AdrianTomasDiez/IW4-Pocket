@@ -215,8 +215,10 @@ pub fn valid_file_setting(name: &str, value: &str) -> bool {
         // with a pace); log the on-screen frame timing every 128 presents.
         "IW4L_FRAME_PACE" => matches!(value, "off" | "0" | "30" | "40" | "60"),
         "IW4L_DT_SNAP" | "IW4L_FRAME_STATS" => matches!(value, "0" | "1"),
-        // Render on its own thread, one frame behind the main loop (off by default).
+                // Render on its own thread, one frame behind the main loop (off by default).
         "IW4L_PIPELINED_RENDERING" => matches!(value, "0" | "1"),
+        // Console startup commands (e.g. `map mp_rust; bot add 5`).
+        name if name.starts_with(CMDS_ENV) => !value.contains('\0'),
         _ => false,
     }
 }
@@ -318,10 +320,13 @@ mod tests {
         assert!(!valid_file_setting("IW4L_\0", "1"));
         for v in ["off", "0", "30", "40", "60"] { assert!(valid_file_setting("IW4L_FRAME_PACE", v), "{v}"); }
         for v in ["on", "1", "45", "120", "", " 30", "30\0"] { assert!(!valid_file_setting("IW4L_FRAME_PACE", v), "{v:?}"); }
-        for name in ["IW4L_DT_SNAP", "IW4L_FRAME_STATS"] {
+                for name in ["IW4L_DT_SNAP", "IW4L_FRAME_STATS"] {
             assert!(valid_file_setting(name, "0"));
             assert!(valid_file_setting(name, "1"));
             for v in ["on", "off", "45", "", "1\0"] { assert!(!valid_file_setting(name, v), "{name}={v:?}"); }
         }
+        assert!(valid_file_setting(CMDS_ENV, "map mp_rust; bot add 5"));
+        assert!(valid_file_setting("IW4L_CMDS", "bot add 5"));
+        assert!(!valid_file_setting(CMDS_ENV, "bot add 5\0"));
     }
 }
