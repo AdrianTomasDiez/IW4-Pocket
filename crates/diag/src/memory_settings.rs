@@ -16,6 +16,8 @@ pub const TEXTURE_CAP_ENV: &str = "IW4L_TEXTURE_CAP";
 /// cannot filter 32-bit float textures, which the shadow maps need); `1` leaves it to the
 /// game's own Shadows option.
 pub const SHADOWS_ENV: &str = "IW4L_SHADOWS";
+/// Console commands to run at startup (semicolon-separated). Used to add bots, change maps, etc.
+pub const CMDS_ENV: &str = "IW4L_CMDS";
 
 /// `Some` only for a recognised profile name; anything else means Auto.
 pub fn tier_override(value: Option<&str>) -> Option<Tier> {
